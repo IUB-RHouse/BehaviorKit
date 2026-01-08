@@ -1,0 +1,8 @@
+client_venv
+server_venv
+.hf_cache
+
+__pycache__/
+*.py[cod]
+
+data/models/gaze360/gaze360_model.pth

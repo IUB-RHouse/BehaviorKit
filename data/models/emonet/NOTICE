@@ -1,0 +1,9 @@
+Component: EmoNet (Estimation of continuous valence and arousal levels from faces)
+Source: https://github.com/face-analysis/emonet
+Paper:  A. Toisoul, J. Kossaifi, A. Bulat, G. Tzimiropoulos, M. Pantic,
+        "Estimation of continuous valence and arousal levels from faces in naturalistic conditions",
+        Nature Machine Intelligence, 2021.
+
+License: Creative Commons Attribution–NonCommercial–NoDerivatives 4.0 International
+         (CC BY-NC-ND 4.0)
+License Text: See LICENSE and https://creativecommons.org/licenses/by-nc-nd/4.0/

@@ -1,0 +1,7 @@
+Component: YOLOv8-Face (pre-trained face detection models)
+Source: https://github.com/lindevs/yolov8-face
+License: MIT License (see upstream LICENSE)
+
+Copyright (c) Lindevs.
+As required by the MIT License, this project includes attribution to the original authors.
+No changes have been made to the model weights other than storage/repackaging in this repository.

@@ -1,0 +1,6 @@
+We include the MediaPipe Face Landmarker and Pose Landmarker models
+from Google, licensed under the Apache License, Version 2.0.
+
+Model cards:
+- FaceMesh V2: https://storage.googleapis.com/mediapipe-assets/Model%20Card%20MediaPipe%20Face%20Mesh%20V2.pdf
+- BlazePose: https://storage.googleapis.com/mediapipe-assets/Model%20Card%20BlazePose%20GHUM%203D.pdf

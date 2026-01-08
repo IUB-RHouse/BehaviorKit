@@ -1,0 +1,30 @@
+
+# Most important settings:
+
+quality: "maximum"  # "minimum", "low", "medium", "high", "maximum"
+
+# DATASET LOCATIONS
+dataset:
+  videos_dir: "demo_data"
+
+models:
+  face_landmark_model: "data/models/mediapipe/face_landmarker.task"
+  pose_landmark_model: "data/models/mediapipe/pose_landmarker_heavy.task"
+  gaze_model: "data/models/gaze360/gaze360_model.pth"
+  face_detection_model: "data/models/yolov8-face/yolov8m-face.pt"
+  emotion_model: "data/models/emonet/emonet_8.pth"
+
+landmarks:
+  right_eyebrow_landmarks: [276, 282, 283, 285, 293, 295, 296, 300, 334, 336]
+  left_eyebrow_landmarks:  [46, 52, 53, 55, 63, 65, 66, 70, 105, 107]
+  right_eye_landmarks:      [249, 263, 362, 373, 374, 380, 381, 382, 384, 385, 386, 387, 388, 390, 398, 466]
+  left_eye_landmarks:       [7, 33, 133, 144, 145, 153, 154, 155, 157, 158, 159, 160, 161, 163, 173, 246]
+
+  upper_lip_landmarks: [61, 185, 40, 39, 37, 0, 267, 269, 270, 409, 291, 306, 292, 308, 415, 310, 311, 312, 13, 82, 81, 80, 191, 78, 62, 76]
+  lower_lip_landmarks: [61, 76, 62, 78, 95, 88, 178, 87, 14, 317, 402, 318, 324, 308, 292, 306, 291, 375, 321, 405, 314, 17, 84, 181, 91, 146]
+
+  nose_landmarks: [107, 9, 336, 55, 8, 285, 193, 168, 417, 122, 6, 351, 196, 197, 419, 3, 195, 248, 51, 5, 281, 45, 4, 275, 1]
+  chin_landmarks: [152]
+
+  torso_landmarks: [11, 12]
+  arm_landmarks: [13, 14]
