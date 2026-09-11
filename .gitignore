@@ -4,5 +4,9 @@ server_venv
 
 __pycache__/
 *.py[cod]
+.pytest_cache/
+.coverage
 
 data/models/gaze360/gaze360_model.pth
+data/models/l2cs/L2CSNet_gaze360.pkl
+data/models/mobilegaze/*.pt

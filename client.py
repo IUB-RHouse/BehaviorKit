@@ -72,6 +72,33 @@ class SequentialClient:
         self.request_count = 0
         self.total_time_ms = 0.0
         self.processing_times: List[float] = []
+        self.modalities: Dict[str, Dict] = {}
+
+    def _modality_enabled(self, name: str) -> bool:
+        # Fields print if we don't know the server's modality set (e.g. it's
+        # running an older build without the session_info handshake).
+        info = self.modalities.get(name)
+        return True if info is None else bool(info.get("enabled", True))
+
+    async def _handshake(self, ws) -> None:
+        raw = await ws.recv()
+        msg = json.loads(raw)
+        if msg.get("type") != "session_info":
+            # Not the handshake we expected; treat as the first real frame
+            # response would be premature here, so just warn and move on.
+            print("Warning: expected a session_info handshake from the server, got something else.")
+            return
+
+        self.modalities = msg.get("modalities", {})
+        print("Active modalities:")
+        for name, info in self.modalities.items():
+            if not info.get("enabled"):
+                print(f"  - {name}: disabled")
+                continue
+            extras = {k: v for k, v in info.items() if k != "enabled" and v is not None}
+            extras_str = f" ({', '.join(f'{k}={v}' for k, v in extras.items())})" if extras else ""
+            print(f"  - {name}: enabled{extras_str}")
+        print()
 
     async def _stream_one(
         self,
@@ -167,20 +194,23 @@ class SequentialClient:
                     self.processing_times.append(proc)
                     if (tick - global_tick_start) % 5 == 0:
                         print(f"Tick {tick:4d} | Server: {proc:6.1f} ms | RTT: {rtt_ms:6.1f} ms")
-                        if result.get("whisper_text"):
+                        if self._modality_enabled("speech") and result.get("whisper_text"):
                             print(f"  Speech: '{result['whisper_text'][:60]}...'")
-                        if result.get("gaze"):
+                        if self._modality_enabled("gaze") and result.get("gaze"):
                             g = result["gaze"]
                             print(f"  Gaze: yaw={g.get('yaw', 0):.2f}, pitch={g.get('pitch', 0):.2f}")
-                        if result.get("face_landmarks"):
+                        if self._modality_enabled("emotion") and result.get("emotion"):
+                            e = result["emotion"]
+                            print(f"  Emotion: {e.get('expression')} (valence={e.get('valence', 0):.2f}, arousal={e.get('arousal', 0):.2f})")
+                        if self._modality_enabled("face_landmarks") and result.get("face_landmarks"):
                             n_faces = len(result["face_landmarks"])
                             print(f"  Faces: {n_faces} detected", "number of landmarks per face:",
                                   [len(f) for f in result["face_landmarks"]])
-                        if result.get("pose_landmarks"):
+                        if self._modality_enabled("pose_landmarks") and result.get("pose_landmarks"):
                             n_poses = len(result["pose_landmarks"])
                             print(f"  Poses: {n_poses} detected", "number of landmarks per pose:",
                                   [len(p) for p in result["pose_landmarks"]])
-                        if result.get("sentiment"):
+                        if self._modality_enabled("sentiment") and result.get("sentiment"):
                             print(f"  Sentiment: {result['sentiment']}")
                 else:
                     print(f"Tick {tick:4d} | Error: {result['error']}")
@@ -226,6 +256,7 @@ class SequentialClient:
 
         start_wall = time.time()
         async with websockets.connect(server_url) as ws:
+            await self._handshake(ws)
             tick = 0
             for idx, (vp, wp) in enumerate(pairs):
                 print(f"== Stream {idx+1}/{len(pairs)} ==")

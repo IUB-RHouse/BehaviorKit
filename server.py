@@ -115,12 +115,7 @@ async def startup():
     os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
     from module.inference import get_runner
-    _RUNNER = get_runner(
-        whisper_size="large-v3",
-        whisper_word_timestamps=True,
-        audio_chunk_seconds=3.0,
-        use_gpu=True,
-    )
+    _RUNNER = get_runner(use_gpu=True)
 
     print(f"Models loaded on device: {_RUNNER.device}")
     print("\nEndpoints:")
@@ -196,6 +191,11 @@ async def websocket_analyze(websocket: WebSocket):
     await websocket.accept()
     client_id = f"{websocket.client.host}:{websocket.client.port}"
     print(f"\n🔌 Client connected: {client_id}")
+
+    # Tell the client up front which modalities are active and which model
+    # variant each is running, so it knows what to expect in every response
+    # without having to guess from a single frame's (possibly-null) fields.
+    await websocket.send_json({"type": "session_info", "modalities": _RUNNER.describe_modalities()})
 
     rolling = AudioRollingBuffer()
     latest_frame: Optional[FrameData] = None
@@ -319,6 +319,9 @@ async def websocket_analyze(websocket: WebSocket):
                     if getattr(result, "gaze", None):
                         g = result.gaze
                         print(f"Gaze: yaw={g['yaw']:.2f}, pitch={g['pitch']:.2f}")
+                    if getattr(result, "emotion", None):
+                        e = result.emotion
+                        print(f"Emotion: {e['expression']} (valence={e['valence']:.2f}, arousal={e['arousal']:.2f})")
                     if getattr(result, "sentiment", None):
                         print(f"Sentiment: {result.sentiment['label']} ({result.sentiment['score']:.2f})")
 
@@ -329,6 +332,7 @@ async def websocket_analyze(websocket: WebSocket):
                         "face_landmarks": getattr(result, "face_landmarks", None),
                         "pose_landmarks": getattr(result, "pose_landmarks", None),
                         "gaze": getattr(result, "gaze", None),
+                        "emotion": getattr(result, "emotion", None),
                         "whisper_text": getattr(result, "whisper_text", None),
                         "whisper_words": getattr(result, "whisper_words", None),
                         "sentiment": getattr(result, "sentiment", None),

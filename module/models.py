@@ -1,6 +1,5 @@
 from __future__ import annotations
 import os
-import sys
 from functools import lru_cache
 from typing import Any, Dict, Tuple, Optional
 
@@ -20,17 +19,22 @@ def get_config(path: Optional[str] = None) -> Dict[str, Any]:
     with open(cfg_path, "r", encoding="utf-8") as f:
         data = yaml.safe_load(f) or {}
     # Basic structure guardrails
-    for k in ("models", "dataset"):
+    for k in ("modalities", "dataset"):
         if k not in data:
             raise KeyError(f"Missing top-level key '{k}' in {cfg_path}")
     return data
 
-def _model_path(key: str) -> str:
-    cfg = get_config()
-    try:
-        return cfg["models"][key]
-    except KeyError as e:
-        raise KeyError(f"Missing models.{key} in config") from e
+def modality_cfg(name: str) -> Dict[str, Any]:
+    """Settings for one modality (modalities.<name> in config.yaml). Missing
+    modalities are treated as enabled with no overrides, so a config that
+    doesn't mention a modality keeps the old always-on behavior."""
+    return get_config().get("modalities", {}).get(name) or {}
+
+def modality_enabled(name: str) -> bool:
+    return bool(modality_cfg(name).get("enabled", True))
+
+def quality() -> str:
+    return get_config().get("quality", "medium")
 
 def landmarks() -> Dict[str, list]:
     return get_config().get("landmarks", {})
@@ -43,18 +47,10 @@ def videos_dir() -> str:
 
 os.environ.setdefault("HF_HOME", os.path.join(os.getcwd(), ".hf_cache"))
 
-@lru_cache(maxsize=1)
-def get_face_landmarker(cpu: bool = True):
-    try:
-        from mediapipe.tasks import python as mp_python
-        from mediapipe.tasks.python import vision as mp_vision
-    except Exception as e:
-        raise ImportError("mediapipe is required: pip install mediapipe") from e
-
-    delegate = mp_python.BaseOptions.Delegate.CPU if cpu else mp_python.BaseOptions.Delegate.GPU
+def _make_face_landmarker(mp_python, mp_vision, model_path, delegate):
     opts = mp_vision.FaceLandmarkerOptions(
         base_options=mp_python.BaseOptions(
-            model_asset_path=_model_path("face_landmark_model"),
+            model_asset_path=model_path,
             delegate=delegate
         ),
         num_faces=1,
@@ -65,29 +61,28 @@ def get_face_landmarker(cpu: bool = True):
     return mp_vision.FaceLandmarker.create_from_options(opts)
 
 @lru_cache(maxsize=1)
-def get_pose_landmarker(cpu: bool = True):
+def get_face_landmarker(cpu: bool = True):
     try:
         from mediapipe.tasks import python as mp_python
         from mediapipe.tasks.python import vision as mp_vision
     except Exception as e:
         raise ImportError("mediapipe is required: pip install mediapipe") from e
 
-    model_path = _model_path("pose_landmark_model")
+    model_path = modality_cfg("face_landmarks")["model_path"]
 
-    if get_config().get("quality", "medium") == "minimum":
-        model_path = model_path.replace("heavy", "lite")  # use lite model
-    if get_config().get("quality", "medium") == "low":
-        model_path = model_path.replace("heavy", "lite")  # use lite model
-    if get_config().get("quality", "medium") == "medium":
-        model_path = model_path.replace("heavy", "full")  # use full model
-    if get_config().get("quality", "medium") == "high":
-        model_path = model_path.replace("heavy", "full")  # use full model
-    if get_config().get("quality", "medium") == "maximum":
-        model_path = model_path  # keep heavy model
+    if cpu:
+        return _make_face_landmarker(mp_python, mp_vision, model_path, mp_python.BaseOptions.Delegate.CPU)
 
-    delegate = mp_python.BaseOptions.Delegate.CPU if cpu else mp_python.BaseOptions.Delegate.GPU
+    # The mediapipe GPU delegate isn't built into the official Windows/macOS
+    # wheels (only Linux); fall back to CPU rather than failing to start.
+    try:
+        return _make_face_landmarker(mp_python, mp_vision, model_path, mp_python.BaseOptions.Delegate.GPU)
+    except Exception:
+        return _make_face_landmarker(mp_python, mp_vision, model_path, mp_python.BaseOptions.Delegate.CPU)
+
+def _make_pose_landmarker(mp_python, mp_vision, model_path, delegate):
     base = mp_python.BaseOptions(
-        model_asset_path=_model_path("pose_landmark_model"),
+        model_asset_path=model_path,
         delegate=delegate,
     )
     opts = mp_vision.PoseLandmarkerOptions(
@@ -97,6 +92,44 @@ def get_pose_landmarker(cpu: bool = True):
     )
     return mp_vision.PoseLandmarker.create_from_options(opts)
 
+def resolve_pose_variant() -> str:
+    """Explicit modalities.pose_landmarks.variant wins; otherwise derive
+    lite/full/heavy from the global `quality` tier."""
+    variant = modality_cfg("pose_landmarks").get("variant")
+    if variant in ("lite", "full", "heavy"):
+        return variant
+    q = quality()
+    if q in ("minimum", "low"):
+        return "lite"
+    if q in ("medium", "high"):
+        return "full"
+    return "heavy"  # "maximum"
+
+@lru_cache(maxsize=1)
+def get_pose_landmarker(cpu: bool = True):
+    try:
+        from mediapipe.tasks import python as mp_python
+        from mediapipe.tasks.python import vision as mp_vision
+    except Exception as e:
+        raise ImportError("mediapipe is required: pip install mediapipe") from e
+
+    model_path = modality_cfg("pose_landmarks")["model_path"]
+    variant = resolve_pose_variant()
+    for tag in ("lite", "full", "heavy"):
+        if tag in model_path:
+            model_path = model_path.replace(tag, variant)
+            break
+
+    if cpu:
+        return _make_pose_landmarker(mp_python, mp_vision, model_path, mp_python.BaseOptions.Delegate.CPU)
+
+    # The mediapipe GPU delegate isn't built into the official Windows/macOS
+    # wheels (only Linux); fall back to CPU rather than failing to start.
+    try:
+        return _make_pose_landmarker(mp_python, mp_vision, model_path, mp_python.BaseOptions.Delegate.GPU)
+    except Exception:
+        return _make_pose_landmarker(mp_python, mp_vision, model_path, mp_python.BaseOptions.Delegate.CPU)
+
 @lru_cache(maxsize=1)
 def get_face_detector():
     try:
@@ -104,53 +137,66 @@ def get_face_detector():
     except Exception as e:
         raise ImportError("ultralytics is required: pip install ultralytics") from e
 
-    return YOLO(_model_path("face_detection_model"))
+    return YOLO(modality_cfg("face_detection")["model_path"])
 
 @lru_cache(maxsize=1)
-def get_gaze_model() -> Tuple["torch.nn.Module", str]:
+def get_gaze_model() -> Tuple[Any, str]:
+    """Builds the configured gaze backend (modalities.gaze.method:
+    gaze360 | l2cs | mobilegaze).
+
+    Returns (backend, device) where backend implements
+    module.gaze_backends.base.GazeBackend.predict(face_bgr) -> (yaw, pitch) in radians.
+    """
     try:
         import torch
     except Exception as e:
         raise ImportError("PyTorch is required: pip install torch") from e
 
-    try:
-        from module.gaze_model import GazeLSTM
-    except Exception as e:
-        hint = (
-            "Could not import 'GazeLSTM'. "
-            "Please ensure that you have followed the readme.md instructions on how to install Gaze360's model."
-        )
-        raise ImportError(hint) from e
+    from module.gaze_backends import build_gaze_backend
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    model = GazeLSTM().to(device)
-
-    ckpt_path = _model_path("gaze_model")
-    ckpt = torch.load(ckpt_path, map_location=device)
-    state = ckpt.get("state_dict", ckpt)
-    state = {k.replace("module.", ""): v for k, v in state.items()}
-    model.load_state_dict(state, strict=False)
-    model.eval()
-    return model, device
+    backend = build_gaze_backend(modality_cfg("gaze"), device)
+    return backend, device
 
 @lru_cache(maxsize=1)
-def get_whisper_model(name: str = "large-v3", device: Optional[str] = None):
-    """
-    Returns a Whisper model ready for transcribe().
-    device: 'cuda' | 'cpu' | None (auto)
-    """
+def get_emonet_model() -> Tuple[Any, str]:
+    """Builds the EmoNet emotion backend (valence/arousal + 8-class
+    expression). CC BY-NC-ND 4.0, non-commercial use only — see
+    data/models/emonet/LICENSE and NOTICE.
 
-    if get_config().get("quality", "medium") == "minimum":
-        name = "tiny"  # override for lowest resource usage
-    if get_config().get("quality", "medium") == "low":
-        name = "tiny"  # override for low resource usage
-    if get_config().get("quality", "medium") == "medium":
-        name = "base"  # override for medium resource usage
-    if get_config().get("quality", "medium") == "high":
-        name = "large-v2"  # override for high resource usage
-    if get_config().get("quality", "medium") == "maximum":
-        name = "large-v3"  # override for maximum quality
+    Returns (backend, device) where backend.predict(face_bgr) -> dict with
+    'expression', 'expression_scores', 'valence', 'arousal'.
+    """
+    try:
+        import torch
+    except Exception as e:
+        raise ImportError("PyTorch is required: pip install torch") from e
 
+    from module.emonet_backend import EmoNetBackend
+
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    weights_path = modality_cfg("emotion")["model_path"]
+    backend = EmoNetBackend(weights_path, device)
+    return backend, device
+
+def resolve_whisper_size() -> str:
+    """Explicit modalities.speech.model wins; otherwise derive a whisper
+    size from the global `quality` tier."""
+    model = modality_cfg("speech").get("model")
+    if model:
+        return model
+    q = quality()
+    if q in ("minimum", "low"):
+        return "tiny"
+    if q == "medium":
+        return "base"
+    if q == "high":
+        return "large-v2"
+    return "large-v3"  # "maximum"
+
+@lru_cache(maxsize=1)
+def get_whisper_model(device: Optional[str] = None):
+    """Returns a Whisper model ready for transcribe(). device: 'cuda' | 'cpu' | None (auto)."""
     try:
         import whisper
     except Exception as e:
@@ -158,7 +204,7 @@ def get_whisper_model(name: str = "large-v3", device: Optional[str] = None):
 
     if device is None:
         device = "cuda" if _has_cuda() else "cpu"
-    return whisper.load_model(name, device=device)
+    return whisper.load_model(resolve_whisper_size(), device=device)
 
 def _has_cuda() -> bool:
     try:
@@ -168,21 +214,27 @@ def _has_cuda() -> bool:
         return False
 
 @lru_cache(maxsize=1)
-def get_sentiment_pipeline(model_name: str = "cardiffnlp/twitter-xlm-roberta-base-sentiment",
-                           device: int = -1):
+def get_sentiment_pipeline(device: int = -1):
     try:
         from transformers import pipeline
     except Exception as e:
         raise ImportError("transformers is required: pip install -U transformers") from e
 
+    model_name = modality_cfg("sentiment").get("model", "cardiffnlp/twitter-xlm-roberta-base-sentiment")
     return pipeline("sentiment-analysis", model=model_name, device=device)
 
 __all__ = [
     "get_config",
+    "modality_cfg",
+    "modality_enabled",
+    "quality",
+    "resolve_pose_variant",
+    "resolve_whisper_size",
     "get_face_landmarker",
     "get_pose_landmarker",
     "get_face_detector",
     "get_gaze_model",
+    "get_emonet_model",
     "get_whisper_model",
     "get_sentiment_pipeline",
     "landmarks",

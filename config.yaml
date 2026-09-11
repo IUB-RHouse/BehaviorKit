@@ -2,17 +2,65 @@
 # Most important settings:
 
 quality: "maximum"  # "minimum", "low", "medium", "high", "maximum"
+# Default resource tier. Used by a modality only when that modality doesn't
+# set its own "variant"/"model" below (leave it null to inherit from here).
 
 # DATASET LOCATIONS
 dataset:
   videos_dir: "demo_data"
 
-models:
-  face_landmark_model: "data/models/mediapipe/face_landmarker.task"
-  pose_landmark_model: "data/models/mediapipe/pose_landmarker_heavy.task"
-  gaze_model: "data/models/gaze360/gaze360_model.pth"
-  face_detection_model: "data/models/yolov8-face/yolov8m-face.pt"
-  emotion_model: "data/models/emonet/emonet_8.pth"
+# Each modality can be turned on/off independently ("enabled"), and most let
+# you pick which model variant runs it. A disabled modality's model is never
+# loaded, so its weight file doesn't need to exist. The server tells clients
+# which modalities are active (and with which variant) when they connect.
+modalities:
+
+  face_detection:
+    enabled: true
+    model_path: "data/models/yolov8-face/yolov8m-face.pt"
+
+  face_landmarks:
+    enabled: true
+    model_path: "data/models/mediapipe/face_landmarker.task"
+
+  pose_landmarks:
+    enabled: true
+    variant: null  # "lite" | "full" | "heavy" | null (null = derive from `quality`)
+    model_path: "data/models/mediapipe/pose_landmarker_heavy.task"
+
+  # Gaze estimation. "method" selects which model runs; only that method's
+  # weights need to be present.
+  gaze:
+    enabled: true
+    method: "mobilegaze"  # "gaze360" | "l2cs" | "mobilegaze"
+    gaze360_model: "data/models/gaze360/gaze360_model.pth"
+    l2cs_model: "data/models/l2cs/L2CSNet_gaze360.pkl"
+    mobilegaze_arch: "mobilenetv2"  # "resnet18" | "resnet34" | "resnet50" | "mobilenetv2"
+    mobilegaze_model: "data/models/mobilegaze/mobilenetv2.pt"
+    # gaze needs face_detection enabled to get a face crop; if face_detection
+    # is disabled, gaze will never produce output even if enabled here.
+
+  # Emotion recognition (EmoNet): 8-class expression + continuous
+  # valence/arousal from the same face crop gaze uses. CC BY-NC-ND 4.0 —
+  # non-commercial use only, see data/models/emonet/LICENSE. Off by default
+  # so the license terms are an explicit opt-in, not a surprise.
+  emotion:
+    enabled: false
+    model_path: "data/models/emonet/emonet_8.pth"
+    # emotion needs face_detection enabled to get a face crop; if face_detection
+    # is disabled, emotion will never produce output even if enabled here.
+
+  speech:
+    enabled: true
+    model: null  # "tiny" | "base" | "small" | "medium" | "large-v2" | "large-v3" | null (null = derive from `quality`)
+    word_timestamps: true
+    chunk_seconds: 3.0
+
+  # Sentiment runs on the text speech produces, so it's a no-op unless
+  # `speech` is also enabled.
+  sentiment:
+    enabled: true
+    model: "cardiffnlp/twitter-xlm-roberta-base-sentiment"
 
 landmarks:
   right_eyebrow_landmarks: [276, 282, 283, 285, 293, 295, 296, 300, 334, 336]
