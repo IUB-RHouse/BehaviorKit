@@ -1,7 +1,7 @@
 """Tests for server.py's pure logic: the rolling audio buffer, frame/audio
 decoding, 1s padding/trimming, and the two plain HTTP endpoints. The
-websocket handler itself (two concurrent asyncio tasks sharing state over a
-live connection) is integration-shaped and deliberately not covered here.
+/ws/analyze handler itself (two concurrent asyncio tasks sharing state over
+a live connection) is covered separately in test_server_websocket.py.
 """
 import base64
 
@@ -87,11 +87,54 @@ class TestAudioRollingBuffer:
 
 
 class TestDecodeFrame:
-    def test_round_trips_a_frame(self):
+    def test_round_trips_a_raw_frame_by_default(self):
         frame = np.arange(2 * 3 * 3, dtype=np.uint8).reshape(2, 3, 3)
         b64 = base64.b64encode(frame.tobytes()).decode("ascii")
         decoded = server._decode_frame(b64, [2, 3, 3])
         assert np.array_equal(decoded, frame)
+
+    def test_round_trips_a_raw_frame_explicit_compress_arg(self):
+        frame = np.arange(2 * 3 * 3, dtype=np.uint8).reshape(2, 3, 3)
+        b64 = base64.b64encode(frame.tobytes()).decode("ascii")
+        decoded = server._decode_frame(b64, [2, 3, 3], compress="raw-bgr")
+        assert np.array_equal(decoded, frame)
+
+    def test_decodes_a_real_jpeg_frame(self):
+        """Regression test: client.py's --jpeg mode sends far fewer bytes
+        than frame_shape's raw byte count would require (JPEG compression),
+        which used to crash the server with a reshape ValueError because
+        _decode_frame never branched on the "compress" field the client
+        already sends -- confirmed live against a running server, then
+        fixed here by decoding through cv2.imdecode when compress="jpeg"."""
+        import cv2
+
+        frame = np.zeros((20, 16, 3), dtype=np.uint8)
+        frame[:, :, 1] = 255  # give it non-trivial content
+        ok, encoded = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 90])
+        assert ok
+        b64 = base64.b64encode(encoded.tobytes()).decode("ascii")
+
+        # frame_shape mirrors what client.py sends in --jpeg mode: the
+        # *original* uncompressed shape, which is irrelevant to JPEG
+        # decoding (cv2.imdecode reads real dimensions from the JPEG
+        # header) but must not be used to reshape the compressed bytes.
+        decoded = server._decode_frame(b64, [20, 16, 3], compress="jpeg")
+
+        assert decoded.shape == (20, 16, 3)
+        assert decoded[:, :, 1].mean() > 200  # green channel survived compression
+
+    def test_jpeg_bytes_would_crash_the_raw_path(self):
+        """Documents the exact failure mode this fixes: JPEG bytes are far
+        too few to satisfy frame_shape's raw byte count."""
+        import cv2
+
+        frame = np.zeros((480, 854, 3), dtype=np.uint8)
+        ok, encoded = cv2.imencode(".jpg", frame)
+        assert ok
+        b64 = base64.b64encode(encoded.tobytes()).decode("ascii")
+
+        with pytest.raises(ValueError, match="cannot reshape array"):
+            server._decode_frame(b64, [480, 854, 3])  # compress defaults to "raw-bgr"
 
 
 class TestDecodeAudio:

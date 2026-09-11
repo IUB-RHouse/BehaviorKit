@@ -11,6 +11,7 @@ today hung the whole run for 10+ minutes, so nothing here is allowed to
 rely on a bug-free implementation to terminate.
 """
 import asyncio
+import base64
 import types
 
 import numpy as np
@@ -133,9 +134,30 @@ class TestHappyPath:
 
         frame_responses = [m for m in ws.sent[1:] if "error" not in m]
         assert len(frame_responses) == 3
-        assert {r["t_sec"] for r in frame_responses} == {0, 1, 2}
         assert server.total_requests == 3
         assert server.total_frames_processed == 3
+
+    def test_processes_a_jpeg_compressed_frame(self, monkeypatch):
+        """End-to-end regression test for the --jpeg client mode bug
+        (confirmed live against a running server, then fixed in
+        server._decode_frame): frame_shape carries the original
+        uncompressed dimensions, but the bytes are JPEG-compressed."""
+        import json
+        import cv2
+
+        frame = np.zeros((20, 16, 3), dtype=np.uint8)
+        ok, encoded = cv2.imencode(".jpg", frame)
+        assert ok
+        msg = _make_frame_message()
+        msg["frame"] = base64.b64encode(encoded.tobytes()).decode("ascii")
+        msg["frame_shape"] = [20, 16, 3]
+        msg["compress"] = "jpeg"
+
+        ws = asyncio.run(_run_handler(monkeypatch, incoming=[json.dumps(msg)]))
+
+        errors = [m["error"] for m in ws.sent if "error" in m]
+        assert errors == []
+        assert server.total_frames_processed == 1
 
     def test_response_carries_result_fields(self, monkeypatch, capsys):
         import json

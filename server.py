@@ -124,10 +124,14 @@ async def startup():
     print("=" * 60)
 
 
-def _decode_frame(frame_b64: str, shape: list) -> np.ndarray:
+def _decode_frame(frame_b64: str, shape: list, compress: str = "raw-bgr") -> np.ndarray:
     frame_bytes = base64.b64decode(frame_b64)
-    frame = np.frombuffer(frame_bytes, dtype=np.uint8).reshape(shape)
-    return frame
+    if compress == "jpeg":
+        frame = cv2.imdecode(np.frombuffer(frame_bytes, dtype=np.uint8), cv2.IMREAD_COLOR)
+        if frame is None:
+            raise ValueError("Failed to decode JPEG frame")
+        return frame
+    return np.frombuffer(frame_bytes, dtype=np.uint8).reshape(shape)
 
 
 def _decode_audio(audio_b64: str, audio_rate: int | None = None) -> np.ndarray:
@@ -226,7 +230,7 @@ async def websocket_analyze(websocket: WebSocket):
                         await websocket.send_json({"error": "Missing frame data"})
                         continue
 
-                    frame = _decode_frame(frame_b64, frame_shape)
+                    frame = _decode_frame(frame_b64, frame_shape, compress=message.get('compress', 'raw-bgr'))
 
                     audio_b64 = message.get('audio')
                     if not audio_b64:
