@@ -49,6 +49,15 @@ The gaze model is pluggable — pick one via `gaze.method` in `config.yaml`:
 
 Only the weights for the selected `gaze.method` need to be present.
 
+**Output units:** every backend returns `(yaw, pitch)` in **radians**, not
+degrees — the server's `gaze` response field is `{"yaw", "pitch", "x", "y",
+"z", "method"}`, where `yaw`/`pitch` are radians and `x`/`y`/`z` are a unit
+gaze-direction vector (`x = -cos(pitch)*sin(yaw)`, `y = -sin(pitch)`,
+`z = -cos(pitch)*cos(yaw)`). Any client applying a degree-scale threshold
+(e.g. "within 20 of center") must convert radians to degrees first —
+comparing a degree threshold against a radian value is a silent bug: radian
+values rarely exceed ~3.14, so the threshold is effectively always satisfied.
+
 ### Gaze360 (original model)
 
 Download and extract: http://gaze360.csail.mit.edu/files/gaze360_model.pth.tar -> (location within this repo) data/models/gaze360/gaze360_model.pth

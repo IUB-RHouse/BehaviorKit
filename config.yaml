@@ -20,11 +20,11 @@ modalities:
     model_path: "data/models/yolov8-face/yolov8m-face.pt"
 
   face_landmarks:
-    enabled: true
+    enabled: false
     model_path: "data/models/mediapipe/face_landmarker.task"
 
   pose_landmarks:
-    enabled: true
+    enabled: false
     variant: null  # "lite" | "full" | "heavy" | null (null = derive from `quality`)
     model_path: "data/models/mediapipe/pose_landmarker_heavy.task"
 
@@ -51,7 +51,7 @@ modalities:
     # is disabled, emotion will never produce output even if enabled here.
 
   speech:
-    enabled: true
+    enabled: false
     model: null  # "tiny" | "base" | "small" | "medium" | "large-v2" | "large-v3" | null (null = derive from `quality`)
     word_timestamps: true
     chunk_seconds: 3.0
@@ -59,7 +59,7 @@ modalities:
   # Sentiment runs on the text speech produces, so it's a no-op unless
   # `speech` is also enabled.
   sentiment:
-    enabled: true
+    enabled: false
     model: "cardiffnlp/twitter-xlm-roberta-base-sentiment"
 
 landmarks:
