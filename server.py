@@ -233,12 +233,20 @@ async def websocket_analyze(websocket: WebSocket):
                     frame = _decode_frame(frame_b64, frame_shape, compress=message.get('compress', 'raw-bgr'))
 
                     audio_b64 = message.get('audio')
-                    if not audio_b64:
-                        await websocket.send_json({"error": "Missing audio data"})
-                        continue
-
-                    audio_rate = message.get('audio_rate', None)
-                    audio_16k = _decode_audio(audio_b64, audio_rate=audio_rate)
+                    if audio_b64:
+                        audio_rate = message.get('audio_rate', None)
+                        audio_16k = _decode_audio(audio_b64, audio_rate=audio_rate)
+                    else:
+                        # Audio is optional: modalities like gaze/emotion/pose
+                        # don't need it, and requiring every client to
+                        # fabricate a chunk just to get past this check is
+                        # exactly the kind of thing that silently breaks a
+                        # deployment (a client that skips audio gets every
+                        # frame rejected, with nothing to distinguish that
+                        # from a healthy connection unless it checks for
+                        # error responses). Substitute silence instead.
+                        chunk_sec = float(message.get('audio_chunk_sec', 0.1))
+                        audio_16k = np.zeros(int(TARGET_SR * chunk_sec), dtype=np.float32)
 
                     rolling.maybe_reset(message)
                     rolling.push(audio_16k)

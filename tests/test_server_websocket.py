@@ -198,14 +198,43 @@ class TestMalformedInput:
         assert {"error": "Missing frame data"} in ws.sent
         assert server.total_frames_processed == 0
 
-    def test_missing_audio_data_reports_error(self, monkeypatch):
+    def test_missing_audio_is_treated_as_silence_not_an_error(self, monkeypatch):
+        """Regression test: audio used to be mandatory even when `speech`
+        is disabled, so a client that only cares about e.g. gaze had every
+        single frame rejected with {"error": "Missing audio data"} -- and
+        nothing in the response shape distinguished that from a healthy
+        connection unless the client explicitly checked for errors. Missing
+        audio is now substituted with silence instead of rejected."""
         import json
         msg = _make_frame_message()
         del msg["audio"]
+        del msg["audio_rate"]
+
+        received = []
+
+        def _capture_sample(sample):
+            received.append(sample)
+            return _canned_result(sample.t_sec)
+
+        ws = asyncio.run(_run_handler(monkeypatch, incoming=[json.dumps(msg)], run_models=_capture_sample))
+
+        errors = [m for m in ws.sent if "error" in m]
+        assert errors == []
+        assert server.total_frames_processed == 1
+        assert len(received) == 1
+        assert received[0].audio_1s_16k_mono.shape == (server.TARGET_SR,)
+        assert np.all(received[0].audio_1s_16k_mono == 0.0)
+
+    def test_missing_audio_silence_is_sized_by_audio_chunk_sec(self, monkeypatch):
+        import json
+        msg = _make_frame_message(audio_chunk_sec=0.5)
+        del msg["audio"]
+        del msg["audio_rate"]
 
         ws = asyncio.run(_run_handler(monkeypatch, incoming=[json.dumps(msg)]))
 
-        assert {"error": "Missing audio data"} in ws.sent
+        resp = next(m for m in ws.sent[1:] if "error" not in m)
+        assert resp["audio_buffer_seconds"] == pytest.approx(0.5, abs=1e-3)
 
     def test_invalid_json_reports_error(self, monkeypatch):
         ws = asyncio.run(_run_handler(monkeypatch, incoming=["{not valid json"]))
